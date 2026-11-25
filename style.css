@@ -301,3 +301,96 @@ button:focus-visible {
 .difficulty-option.active:hover small {
   color: #ffffff;
 }
+.game-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.material-panel {
+  width: 96px;
+  min-height: 130px;
+  padding: 10px 8px;
+  background: #222925;
+  border: 1px solid #364139;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.material-label {
+  display: block;
+  color: #a9c99d;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.captured-pieces {
+  min-height: 48px;
+  margin-top: 8px;
+  line-height: 1;
+}
+
+.captured-piece {
+  display: inline-block;
+  margin: -3px;
+  font-size: 25px;
+}
+
+.material-value {
+  min-height: 1.2em;
+  color: #a9c99d;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.square[draggable="true"] {
+  cursor: grab;
+}
+
+.square[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 560px) {
+  .game-area {
+    flex-direction: column;
+  }
+
+  .material-panel {
+    display: grid;
+    grid-template-columns: 100px 1fr 35px;
+    align-items: center;
+    width: min(480px, 88vw);
+    min-height: 0;
+    text-align: left;
+  }
+
+  .captured-pieces {
+    min-height: 0;
+    margin: 0;
+  }
+
+  .material-value {
+    text-align: right;
+  }
+}
+.drag-ghost {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  font-size: 42px;
+  pointer-events: none;
+}
+
+.drag-source {
+  color: transparent !important;
+  -webkit-text-stroke: 0 transparent !important;
+  text-shadow: none !important;
+}

@@ -6,6 +6,14 @@ const sideSelect = document.getElementById('sideSelect');
 const difficultySelect = document.getElementById('difficultySelect');
 const promoModal = document.getElementById('promoModal');
 const promoChoices = document.getElementById('promoChoices');
+const whiteCapturedEl = document.getElementById('whiteCaptured');
+const blackCapturedEl = document.getElementById('blackCaptured');
+const whiteMaterialEl = document.getElementById('whiteMaterial');
+const blackMaterialEl = document.getElementById('blackMaterial');
+
+let dragSource = null;
+let dragDropHandled = false;
+let ignoreNextClick = false;
 
 let selectedSquare = null;
 let lastMove = null;
@@ -46,6 +54,85 @@ function getKingSquares() {
   return kings;
 }
 
+function renderMaterial() {
+  const captured = { w: [], b: [] };
+
+  game.history({ verbose: true }).forEach(move => {
+    if (move.captured) {
+      captured[move.color].push(move.captured);
+    }
+  });
+
+  function showCaptured(color, element, scoreElement) {
+    const capturedColor = color === 'w' ? 'b' : 'w';
+    const score = captured[color]
+      .reduce((total, piece) => total + pieceValues[piece], 0);
+
+    element.innerHTML = captured[color]
+      .map(piece => {
+        const symbolKey = capturedColor === 'w'
+          ? piece.toUpperCase()
+          : piece;
+
+        const pieceClass = capturedColor === 'w'
+          ? 'white-piece'
+          : 'black-piece';
+
+        return `<span class="captured-piece ${pieceClass}">${pieceSymbols[symbolKey]}</span>`;
+      })
+      .join('');
+
+    scoreElement.textContent = '';
+  }
+
+  showCaptured('w', whiteCapturedEl, whiteMaterialEl);
+  showCaptured('b', blackCapturedEl, blackMaterialEl);
+
+  const whiteScore = captured.w
+    .reduce((total, piece) => total + pieceValues[piece], 0);
+
+  const blackScore = captured.b
+    .reduce((total, piece) => total + pieceValues[piece], 0);
+
+  const difference = whiteScore - blackScore;
+
+  whiteMaterialEl.textContent =
+    difference > 0 ? `+${difference / 10}` : '';
+
+  blackMaterialEl.textContent =
+    difference < 0 ? `+${Math.abs(difference) / 10}` : '';
+}
+
+function showDragHighlights(from) {
+  const legalSquares = game.moves({
+    square: from,
+    verbose: true
+  }).map(move => move.to);
+
+  boardEl.querySelectorAll('.square').forEach(square => {
+    if (legalSquares.includes(square.dataset.square)) {
+      square.classList.add('highlight');
+    }
+  });
+}
+
+function clearDragHighlights() {
+  boardEl.querySelectorAll('.square').forEach(square => {
+    square.classList.remove(
+      'highlight',
+      'selected',
+      'drag-source'
+    );
+  });
+}
+
+function isLegalDragTarget(from, to) {
+  return game.moves({
+    square: from,
+    verbose: true
+  }).some(move => move.to === to);
+}
+
 function renderBoard() {
   boardEl.innerHTML = '';
 
@@ -73,6 +160,7 @@ function renderBoard() {
     for (const c of cols) {
       const squareName = String.fromCharCode(97 + c) + (8 - r);
       const sqEl = document.createElement('div');
+      sqEl.dataset.square = squareName;
 
       sqEl.className = 'square ' + ((r + c) % 2 === 0 ? 'light' : 'dark');
 
@@ -106,11 +194,103 @@ function renderBoard() {
         sqEl.textContent = pieceSymbols[key];
       }
 
-      sqEl.onclick = () => onSquareClick(squareName);
+      sqEl.onclick = () => {
+        if (!ignoreNextClick) {
+          onSquareClick(squareName);
+        }
+      };
+
+      const canDragPiece =
+        piece &&
+        piece.color === playerColor &&
+        !aiThinking &&
+        !pendingPromotion &&
+        game.turn() === playerColor;
+
+      if (canDragPiece) {
+        sqEl.draggable = true;
+
+        sqEl.addEventListener('dragstart', event => {
+          dragSource = squareName;
+          dragDropHandled = false;
+
+          sqEl.classList.add('drag-source');
+          showDragHighlights(squareName);
+
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', squareName);
+
+          // Make the floating drag image contain only the piece, not its square.
+          const dragGhost = document.createElement('span');
+
+          dragGhost.className =
+            `drag-ghost ` +
+            `${piece.color === 'w' ? 'white-piece' : 'black-piece'} ` +
+            `${piece.color}-piece-${piece.type}`;
+
+          dragGhost.textContent = sqEl.textContent;
+
+          document.body.appendChild(dragGhost);
+
+          event.dataTransfer.setDragImage(dragGhost, 21, 21);
+
+          setTimeout(() => {
+            dragGhost.remove();
+          }, 0);
+        });
+
+        sqEl.addEventListener('dragend', () => {
+          clearDragHighlights();
+
+          if (!dragDropHandled) {
+            selectedSquare = null;
+            renderBoard();
+          }
+
+          dragSource = null;
+          dragDropHandled = false;
+
+          ignoreNextClick = true;
+          setTimeout(() => {
+            ignoreNextClick = false;
+          }, 50);
+        });
+      }
+
+      sqEl.addEventListener('dragover', event => {
+        if (
+          dragSource &&
+          isLegalDragTarget(dragSource, squareName)
+        ) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+        }
+      });
+
+      sqEl.addEventListener('drop', event => {
+        event.preventDefault();
+
+        if (!dragSource) return;
+
+        const from = dragSource;
+        dragDropHandled = true;
+        clearDragHighlights();
+
+        if (!isLegalDragTarget(from, squareName)) {
+          selectedSquare = null;
+          renderBoard();
+          return;
+        }
+
+        selectedSquare = from;
+        onSquareClick(squareName);
+      });
+
       boardEl.appendChild(sqEl);
     }
   }
 
+  renderMaterial();
   updateStatus();
 }
 
@@ -775,6 +955,76 @@ function freePiecePenalty() {
   return worstLoss;
 }
 
+function knightForkScore(knightSquare, victimColor) {
+  const file = knightSquare.charCodeAt(0) - 97;
+  const rank = Number(knightSquare[1]) - 1;
+
+  const jumps = [
+    [1, 2], [2, 1], [2, -1], [1, -2],
+    [-1, -2], [-2, -1], [-2, 1], [-1, 2]
+  ];
+
+  const targets = [];
+
+  for (const [fileChange, rankChange] of jumps) {
+    const newFile = file + fileChange;
+    const newRank = rank + rankChange;
+
+    if (newFile < 0 || newFile > 7 || newRank < 0 || newRank > 7) {
+      continue;
+    }
+
+    const square =
+      String.fromCharCode(97 + newFile) +
+      String(newRank + 1);
+
+    const piece = game.get(square);
+
+    if (!piece || piece.color !== victimColor) continue;
+
+    // A fork must attack important pieces, not merely two pawns.
+    if (piece.type === 'k') {
+      targets.push(50);
+    } else if (piece.type !== 'p') {
+      targets.push(pieceValues[piece.type]);
+    }
+  }
+
+  if (targets.length < 2) return 0;
+
+  targets.sort((a, b) => b - a);
+
+  // Only count the two best targets.
+  return Math.min(80, targets[0] + targets[1]);
+}
+
+function ownKnightForkBonus(move, aiColor) {
+  if (move.piece !== 'n') return 0;
+
+  const opponentColor = aiColor === 'w' ? 'b' : 'w';
+
+  return knightForkScore(move.to, opponentColor);
+}
+
+function opponentKnightForkPenalty(aiColor) {
+  const opponentMoves = game.moves({ verbose: true })
+    .filter(move => move.piece === 'n');
+
+  let worstFork = 0;
+
+  for (const move of opponentMoves) {
+    game.move(move);
+
+    const forkScore = knightForkScore(move.to, aiColor);
+
+    game.undo();
+
+    worstFork = Math.max(worstFork, forkScore);
+  }
+
+  return worstFork;
+}
+
 function searchBestMoveAsync(
   moves,
   index,
@@ -803,6 +1053,8 @@ function searchBestMoveAsync(
 
   const openingPenalty = openingDisciplinePenalty(move, aiColor);
   const hangingPiecePenalty = freePiecePenalty();
+  const forkBonus = ownKnightForkBonus(move, aiColor);
+  const forkThreatPenalty = opponentKnightForkPenalty(aiColor);
 
   const earlyQueenMove =
     move.piece === 'q' &&
@@ -859,7 +1111,9 @@ function searchBestMoveAsync(
     queenPenalty -
     sacrificePenalty -
     openingPenalty -
-    hangingPiecePenalty;
+    hangingPiecePenalty +
+    forkBonus -
+    forkThreatPenalty;
 
   const nextBestValue =
     boardValue > bestValue ? boardValue : bestValue;

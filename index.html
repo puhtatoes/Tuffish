@@ -64,15 +64,29 @@
     Your turn (White)
   </div>
 
-  <div class="board-wrapper">
-    <div id="board"></div>
+  <div class="game-area">
+    <aside class="material-panel">
+      <span class="material-label">White captured</span>
+      <div id="whiteCaptured" class="captured-pieces"></div>
+      <div id="whiteMaterial" class="material-value"></div>
+    </aside>
 
-    <div id="promoModal">
-      <div class="promo-box">
-        <div>Choose promotion piece:</div>
-        <div class="promo-choices" id="promoChoices"></div>
+    <div class="board-wrapper">
+      <div id="board"></div>
+
+      <div id="promoModal">
+        <div class="promo-box">
+          <div>Choose promotion piece:</div>
+          <div class="promo-choices" id="promoChoices"></div>
+        </div>
       </div>
     </div>
+
+    <aside class="material-panel">
+      <span class="material-label">Black captured</span>
+      <div id="blackCaptured" class="captured-pieces"></div>
+      <div id="blackMaterial" class="material-value"></div>
+    </aside>
   </div>
 </body>
 </html>
