@@ -436,6 +436,14 @@ function quiescenceSearch(depth, alpha, beta, isMaximizing, aiColor) {
   return best;
 }
 
+function getPositionKey(depth, isMaximizing, aiColor) {
+  // Includes board layout, side to move, castling rights,
+  // and en-passant information.
+  const position = game.fen().split(' ').slice(0, 4).join(' ');
+
+  return `${position}|${depth}|${isMaximizing}|${aiColor}`;
+}
+
 function minimax(depth, alpha, beta, isMaximizing, aiColor) {
   if (performance.now() >= searchDeadline) return SEARCH_TIMEOUT;
 
