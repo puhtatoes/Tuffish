@@ -394,3 +394,120 @@ button:focus-visible {
   -webkit-text-stroke: 0 transparent !important;
   text-shadow: none !important;
 }
+/* Final phone layout override */
+@media (max-width: 560px) {
+  body {
+    padding: 16px 10px 24px;
+    --phone-square: min(11vw, 60px);
+  }
+
+  .page-header {
+    margin-bottom: 14px;
+  }
+
+  .live-label {
+    display: none;
+  }
+
+  .difficulty-field {
+    min-width: 100%;
+  }
+
+  .game-area {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "white black"
+      "board board";
+    gap: 8px;
+    width: 100%;
+  }
+
+  .game-area .material-panel:first-child {
+    grid-area: white;
+  }
+
+  .game-area .board-wrapper {
+    grid-area: board;
+    justify-self: center;
+  }
+
+  .game-area .material-panel:last-child {
+    grid-area: black;
+  }
+
+  .material-panel {
+    width: auto !important;
+    min-height: 0;
+    padding: 7px;
+  }
+
+  .captured-pieces {
+    min-height: 30px;
+    margin-top: 4px;
+  }
+
+  #board {
+    grid-template-columns: repeat(8, var(--phone-square)) !important;
+    grid-template-rows: repeat(8, var(--phone-square)) !important;
+  }
+
+  .square {
+    width: var(--phone-square) !important;
+    height: var(--phone-square) !important;
+    font-size: calc(var(--phone-square) * 0.7) !important;
+  }
+
+  #status {
+    margin-bottom: 8px;
+    font-size: 1rem;
+  }
+}
+
+/* Keep the board visible on short landscape phone screens */
+@media (orientation: landscape) and (max-height: 600px) {
+  body {
+    padding: 8px 12px 16px;
+    --landscape-square: min(7vh, 60px);
+  }
+
+  .page-header {
+    margin-bottom: 5px;
+  }
+
+  .page-header p,
+  .live-label {
+    display: none;
+  }
+
+  h1 {
+    font-size: 1.2rem;
+  }
+
+  .controls {
+    margin-bottom: 6px;
+    padding: 8px;
+  }
+
+  #status {
+    margin-bottom: 6px;
+    font-size: 1rem;
+  }
+
+  #board {
+    grid-template-columns: repeat(8, var(--landscape-square)) !important;
+    grid-template-rows: repeat(8, var(--landscape-square)) !important;
+  }
+
+  .square {
+    width: var(--landscape-square) !important;
+    height: var(--landscape-square) !important;
+    font-size: calc(var(--landscape-square) * 0.7) !important;
+  }
+
+  .material-panel {
+    width: 70px;
+    min-height: 0;
+    padding: 5px;
+  }
+}
