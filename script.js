@@ -14,6 +14,12 @@ let pendingPromotion = null;
 let aiThinking = false;
 let searchToken = 0;
 let transpositionTable = new Map();
+let searchDeadline = 0;
+
+const SEARCH_TIMEOUT = Symbol('search timeout');
+const HARD_THINK_TIME_MS = 3200;
+const MEDIUM_THINK_TIME_MS = 250;
+const HARD_MAX_DEPTH = 5;
 
 const pieceSymbols = {
   p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
@@ -347,6 +353,8 @@ function orderMoves(moves) {
 }
 
 function quiescenceSearch(depth, alpha, beta, isMaximizing, aiColor) {
+  if (performance.now() >= searchDeadline) return SEARCH_TIMEOUT;
+
   if (game.in_checkmate()) {
     return game.turn() === aiColor
       ? -1000000 - depth
@@ -362,13 +370,13 @@ function quiescenceSearch(depth, alpha, beta, isMaximizing, aiColor) {
   const inCheck = game.in_check();
   let moves = game.moves({ verbose: true });
 
-  // Only continue forcing moves unless the king is in check.
   if (!inCheck) {
-    moves = moves.filter(move => {
-      if (move.captured || move.promotion) return true;
-
-      return move.san.includes('+') || move.san.includes('#');
-    });
+    moves = moves.filter(move =>
+      move.captured ||
+      move.promotion ||
+      move.san.includes('+') ||
+      move.san.includes('#')
+    );
   }
 
   moves = orderMoves(moves);
@@ -389,6 +397,8 @@ function quiescenceSearch(depth, alpha, beta, isMaximizing, aiColor) {
       );
 
       game.undo();
+
+      if (value === SEARCH_TIMEOUT) return SEARCH_TIMEOUT;
 
       best = Math.max(best, value);
       alpha = Math.max(alpha, value);
@@ -415,6 +425,8 @@ function quiescenceSearch(depth, alpha, beta, isMaximizing, aiColor) {
 
     game.undo();
 
+    if (value === SEARCH_TIMEOUT) return SEARCH_TIMEOUT;
+
     best = Math.min(best, value);
     beta = Math.min(beta, value);
 
@@ -424,14 +436,9 @@ function quiescenceSearch(depth, alpha, beta, isMaximizing, aiColor) {
   return best;
 }
 
-function getPositionKey(depth, isMaximizing, aiColor) {
-  // Board, side to move, castling rights, and en-passant square.
-  const position = game.fen().split(' ').slice(0, 4).join(' ');
-
-  return `${position}|${depth}|${isMaximizing}|${aiColor}`;
-}
-
 function minimax(depth, alpha, beta, isMaximizing, aiColor) {
+  if (performance.now() >= searchDeadline) return SEARCH_TIMEOUT;
+
   if (game.in_checkmate()) {
     return game.turn() === aiColor
       ? -1000000 - depth
@@ -476,6 +483,8 @@ function minimax(depth, alpha, beta, isMaximizing, aiColor) {
 
     game.undo();
 
+    if (score === SEARCH_TIMEOUT) return SEARCH_TIMEOUT;
+
     if (isMaximizing) {
       result = Math.max(result, score);
       alpha = Math.max(alpha, result);
@@ -490,7 +499,6 @@ function minimax(depth, alpha, beta, isMaximizing, aiColor) {
     }
   }
 
-  // A cut-off is only a partial result, so do not cache it.
   if (!cutOff) {
     if (transpositionTable.size > 50000) {
       transpositionTable.clear();
@@ -766,12 +774,18 @@ function searchBestMoveAsync(
   bestMove,
   searchDepth,
   aiColor,
-  token
+  token,
+  onComplete
 ) {
   if (token !== searchToken) return;
 
+  if (performance.now() >= searchDeadline) {
+    onComplete(bestMove, false);
+    return;
+  }
+
   if (index >= moves.length) {
-    finishAIMove(bestMove, token);
+    onComplete(bestMove, true);
     return;
   }
 
@@ -788,11 +802,8 @@ function searchBestMoveAsync(
     !move.captured &&
     !move.promotion;
 
-  const queenGivesCheck =
-    move.piece === 'q' && game.in_check();
-
   const queenPenalty =
-    earlyQueenMove && !queenGivesCheck
+    earlyQueenMove && !game.in_check()
       ? 18
       : 0;
 
@@ -801,14 +812,10 @@ function searchBestMoveAsync(
       ? 35
       : 0;
 
-  
-
-
   let castlingPenalty = 0;
 
   if (move.flags.includes('k') || move.flags.includes('q')) {
-    const color = aiColor;
-    const pawnRank = color === 'w' ? '2' : '7';
+    const pawnRank = aiColor === 'w' ? '2' : '7';
 
     const exposedFiles = move.flags.includes('k')
       ? ['f', 'g']
@@ -817,7 +824,7 @@ function searchBestMoveAsync(
     for (const file of exposedFiles) {
       const piece = game.get(file + pawnRank);
 
-      if (!piece || piece.type !== 'p' || piece.color !== color) {
+      if (!piece || piece.type !== 'p' || piece.color !== aiColor) {
         castlingPenalty += 25;
       }
     }
@@ -826,17 +833,25 @@ function searchBestMoveAsync(
   const mateThreat = opponentHasMateInOne();
   const sacrificePenalty = sacrificeRiskPenalty(move);
 
-  const boardValue = mateThreat
+  const searchScore = mateThreat
     ? -999999
-    : minimax(searchDepth, -Infinity, Infinity, false, aiColor) -
-      castlingPenalty -
-      earlyRookPenalty -
-      queenPenalty -
-      sacrificePenalty -
-      openingPenalty -
-      hangingPiecePenalty;
+    : minimax(searchDepth, -Infinity, Infinity, false, aiColor);
 
-  game.undo();  
+  game.undo();
+
+  if (searchScore === SEARCH_TIMEOUT) {
+    onComplete(bestMove, false);
+    return;
+  }
+
+  const boardValue =
+    searchScore -
+    castlingPenalty -
+    earlyRookPenalty -
+    queenPenalty -
+    sacrificePenalty -
+    openingPenalty -
+    hangingPiecePenalty;
 
   const nextBestValue =
     boardValue > bestValue ? boardValue : bestValue;
@@ -852,9 +867,58 @@ function searchBestMoveAsync(
       nextBestMove,
       searchDepth,
       aiColor,
-      token
+      token,
+      onComplete
     );
   }, 0);
+}
+
+function runIterativeSearch(
+  moves,
+  depth,
+  lastCompletedMove,
+  aiColor,
+  token
+) {
+  if (token !== searchToken) return;
+
+  if (
+    performance.now() >= searchDeadline ||
+    depth > HARD_MAX_DEPTH
+  ) {
+    finishAIMove(lastCompletedMove || moves[0], token);
+    return;
+  }
+
+  searchBestMoveAsync(
+    moves,
+    0,
+    -Infinity,
+    null,
+    depth,
+    aiColor,
+    token,
+    (bestMove, completed) => {
+      if (token !== searchToken) return;
+
+      const safeMove = bestMove || lastCompletedMove || moves[0];
+
+      if (!completed) {
+        finishAIMove(lastCompletedMove || safeMove, token);
+        return;
+      }
+
+      setTimeout(() => {
+        runIterativeSearch(
+          moves,
+          depth + 1,
+          safeMove,
+          aiColor,
+          token
+        );
+      }, 0);
+    }
+  );
 }
 
 function makeAIMove() {
@@ -882,7 +946,6 @@ function makeAIMove() {
     if (chosenMove) {
       // Use the book move while the current position is familiar.
     } else {
-      const searchDepth = difficulty === 'medium' ? 1 : 2;
       const orderedMoves = orderMoves(
         game.moves({ verbose: true })
       );
@@ -892,17 +955,33 @@ function makeAIMove() {
       }
 
       transpositionTable.clear();
+
       const token = ++searchToken;
 
-      searchBestMoveAsync(
-        orderedMoves,
-        0,
-        -Infinity,
-        null,
-        searchDepth,
-        aiColor,
-        token
-      );
+      if (difficulty === 'hard') {
+        searchDeadline = performance.now() + HARD_THINK_TIME_MS;
+
+        runIterativeSearch(
+          orderedMoves,
+          1,
+          null,
+          aiColor,
+          token
+        );
+      } else {
+        searchDeadline = performance.now() + MEDIUM_THINK_TIME_MS;
+
+        searchBestMoveAsync(
+          orderedMoves,
+          0,
+          -Infinity,
+          null,
+          1,
+          aiColor,
+          token,
+          bestMove => finishAIMove(bestMove || orderedMoves[0], token)
+        );
+      }
 
       return;
     }
@@ -932,6 +1011,11 @@ function updateStatus() {
 }
 
 function resetGame() {
+  searchToken++;
+  searchDeadline = 0;
+  transpositionTable.clear();
+  stopThinking();
+
   game.reset();
   promoModal.style.display = 'none';
   pendingPromotion = null;
